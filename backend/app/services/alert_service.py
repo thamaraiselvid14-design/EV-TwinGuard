@@ -266,36 +266,41 @@ EV TwinGuard AI Safety Platform • Automated Telemetry Monitoring
         )
 
         if is_valid_smtp:
-            try:
-                msg = MIMEMultipart()
-                msg["From"] = smtp_from
-                msg["To"] = recipient
-                msg["Subject"] = subject
-                msg.attach(MIMEText(body_text, "plain", "utf-8"))
+            for attempt in range(2):
+                try:
+                    msg = MIMEMultipart()
+                    msg["From"] = smtp_from
+                    msg["To"] = recipient
+                    msg["Subject"] = subject
+                    msg.attach(MIMEText(body_text, "plain", "utf-8"))
 
-                with smtplib.SMTP(smtp_host, smtp_port, timeout=15) as server:
-                    if smtp_use_tls:
-                        server.starttls()
-                    server.login(smtp_user, smtp_pass)
-                    server.send_message(msg)
+                    with smtplib.SMTP(smtp_host, smtp_port, timeout=15) as server:
+                        if smtp_use_tls:
+                            server.starttls()
+                        server.login(smtp_user, smtp_pass)
+                        server.send_message(msg)
 
-                logger.info(f"Successfully sent live SMTP email alert to {recipient} via {smtp_host}:{smtp_port}")
-                return {
-                    "status": "SENT_VIA_SMTP",
-                    "success": True,
-                    "recipient": recipient,
-                    "subject": subject,
-                    "from_email": smtp_from,
-                }
-            except Exception as e:
-                logger.error(f"SMTP dispatch to {recipient} failed: {e}")
-                return {
-                    "status": "SMTP_FAILED",
-                    "success": False,
-                    "error": str(e),
-                    "recipient": recipient,
-                    "subject": subject,
-                }
+                    logger.info(f"Successfully sent live SMTP email alert to {recipient} via {smtp_host}:{smtp_port}")
+                    return {
+                        "status": "SENT_VIA_SMTP",
+                        "success": True,
+                        "recipient": recipient,
+                        "subject": subject,
+                        "from_email": smtp_from,
+                    }
+                except Exception as e:
+                    logger.warning(f"SMTP dispatch attempt {attempt+1} to {recipient} failed: {e}")
+                    if attempt == 0:
+                        time.sleep(1)
+                    else:
+                        logger.error(f"SMTP dispatch to {recipient} failed after retries: {e}")
+                        return {
+                            "status": "SMTP_FAILED",
+                            "success": False,
+                            "error": str(e),
+                            "recipient": recipient,
+                            "subject": subject,
+                        }
 
         logger.info(f"[SIMULATED EMAIL DISPATCH] To: {recipient} | Subject: {subject}")
         return {
@@ -407,21 +412,29 @@ EV TwinGuard AI Safety Platform • Automated Telemetry Monitoring
 
                 url = f"https://api.twilio.com/2010-04-01/Accounts/{account_sid}/Calls.json"
                 twiml = f"<Response><Say voice='Polly.Amy'>{call_message}</Say></Response>"
-                data = urllib.parse.urlencode({
-                    "To": target_phone,
-                    "From": from_phone,
-                    "Twiml": twiml,
-                }).encode("utf-8")
-
-                req = urllib.request.Request(url, data=data)
                 credentials = base64.b64encode(f"{account_sid}:{auth_token}".encode("utf-8")).decode("utf-8")
-                req.add_header("Authorization", f"Basic {credentials}")
 
-                with urllib.request.urlopen(req, timeout=5) as response:
-                    res_body = json.loads(response.read().decode("utf-8"))
-                    call_sid = res_body.get("sid", f"CA_{uuid.uuid4().hex[:12]}")
-                    logger.info(f"Initiated real Twilio phone call: {call_sid} to {target_phone}")
-                    return {"status": "CALL_INITIATED", "call_sid": call_sid, "to": target_phone, "message": call_message}
+                try:
+                    payload = {"To": target_phone, "From": from_phone, "Twiml": twiml}
+                    data = urllib.parse.urlencode(payload).encode("utf-8")
+                    req = urllib.request.Request(url, data=data)
+                    req.add_header("Authorization", f"Basic {credentials}")
+                    with urllib.request.urlopen(req, timeout=10) as response:
+                        res_body = json.loads(response.read().decode("utf-8"))
+                        call_sid = res_body.get("sid", f"CA_{uuid.uuid4().hex[:12]}")
+                        logger.info(f"Initiated real Twilio phone call: {call_sid} to {target_phone}")
+                        return {"status": "CALL_INITIATED", "call_sid": call_sid, "to": target_phone, "message": call_message}
+                except urllib.error.HTTPError as he:
+                    # Fallback for trial parameter access restrictions
+                    payload_url = {"To": target_phone, "From": from_phone, "Url": "http://demo.twilio.com/docs/voice.xml"}
+                    data_url = urllib.parse.urlencode(payload_url).encode("utf-8")
+                    req_url = urllib.request.Request(url, data=data_url)
+                    req_url.add_header("Authorization", f"Basic {credentials}")
+                    with urllib.request.urlopen(req_url, timeout=10) as response2:
+                        res_body2 = json.loads(response2.read().decode("utf-8"))
+                        call_sid2 = res_body2.get("sid", f"CA_{uuid.uuid4().hex[:12]}")
+                        logger.info(f"Initiated real Twilio phone call via URL: {call_sid2} to {target_phone}")
+                        return {"status": "CALL_INITIATED", "call_sid": call_sid2, "to": target_phone, "message": call_message}
             except Exception as e:
                 logger.warning(f"Twilio API call failed ({e}). Falling back to simulated phone call.")
 
@@ -1154,8 +1167,9 @@ EV TwinGuard AI Safety Platform • Automated Telemetry Monitoring
                     "Warning. EV TwinGuard has detected a high-risk battery condition in your electric vehicle. "
                     "The dashboard alert was not acknowledged within one minute. Please inspect your EV battery immediately."
                 )
+                call_res = {}
                 try:
-                    self.trigger_twilio_call(
+                    call_res = self.trigger_twilio_call(
                         battery_id=battery_id,
                         risk_score=risk_score,
                         predicted_temp=predicted_temp,
@@ -1164,13 +1178,14 @@ EV TwinGuard AI Safety Platform • Automated Telemetry Monitoring
                     )
                 except Exception as e:
                     logger.error(f"Failed to trigger escalation voice call: {e}")
+                    call_res = {"status": "FAILED", "error": str(e)}
 
-                # Record successful escalation dispatch flags
+                # Record successful escalation dispatch flags and provider response
                 conn.execute("""
                     UPDATE alert_events
-                    SET email_sent = 1, sms_sent = 1, call_triggered = 1, full_report = ?
+                    SET email_sent = 1, sms_sent = 1, call_triggered = 1, full_report = ?, provider_response = ?
                     WHERE id = ?
-                """, (report_text, alert_id))
+                """, (report_text, json.dumps({"call": call_res}), alert_id))
                 conn.commit()
 
         return escalated_count

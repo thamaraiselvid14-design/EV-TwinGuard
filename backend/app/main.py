@@ -28,8 +28,8 @@ from app.services.simulation_service import DigitalTwinSimulationService, get_si
 
 # Load environment variables from .env if present
 base_dir = Path(__file__).resolve().parent.parent
-load_dotenv(base_dir / ".env")
-load_dotenv(base_dir.parent / ".env")
+load_dotenv(base_dir / ".env", override=True)
+load_dotenv(base_dir.parent / ".env", override=True)
 
 
 async def escalation_background_worker():

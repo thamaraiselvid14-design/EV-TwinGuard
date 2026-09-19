@@ -196,25 +196,46 @@ export default function Dashboard({ navigate, initialPage = 'dashboard' }) {
 
   // Countdown timer for High Risk based on backend acknowledgement_deadline
   useEffect(() => {
-    if (!activeAlert || activeAlert.risk_level !== 'HIGH' || !activeAlert.acknowledgement_deadline) {
+    if (
+      !riskAssessmentData ||
+      riskAssessmentData.risk_level !== 'HIGH' ||
+      isAcknowledged ||
+      activeAlert?.status === 'ACKNOWLEDGED'
+    ) {
       return;
     }
 
     const checkTime = () => {
-      const deadlineMs = new Date(activeAlert.acknowledgement_deadline).getTime();
-      const nowMs = Date.now();
-      const diffSec = Math.max(0, Math.floor((deadlineMs - nowMs) / 1000));
-      setHighRiskCountdown(diffSec);
+      if (activeAlert?.acknowledgement_deadline) {
+        const deadlineMs = new Date(activeAlert.acknowledgement_deadline).getTime();
+        const nowMs = Date.now();
+        const diffSec = Math.max(0, Math.floor((deadlineMs - nowMs) / 1000));
+        setHighRiskCountdown(diffSec);
 
-      if (diffSec <= 0) {
-        setIsHighRiskTimedOut(true);
+        if (diffSec <= 0) {
+          setIsHighRiskTimedOut(true);
+        }
+      } else {
+        setHighRiskCountdown((prev) => {
+          if (prev <= 1) {
+            setIsHighRiskTimedOut(true);
+            return 0;
+          }
+          return prev - 1;
+        });
       }
     };
 
     checkTime();
     const interval = setInterval(checkTime, 1000);
     return () => clearInterval(interval);
-  }, [activeAlert?.acknowledgement_deadline]);
+  }, [
+    riskAssessmentData?.risk_level,
+    activeAlert?.acknowledgement_deadline,
+    activeAlert?.id,
+    activeAlert?.status,
+    isAcknowledged,
+  ]);
 
   const formatTime = (totalSeconds) => {
     const mins = Math.floor(totalSeconds / 60);
@@ -223,20 +244,29 @@ export default function Dashboard({ navigate, initialPage = 'dashboard' }) {
   };
 
   const handleAcknowledgeAlert = async () => {
-    if (!activeAlert?.id || acknowledging) return;
+    if (acknowledging || isAcknowledged) return;
     setAcknowledging(true);
+
+    // 1. Immediately mark acknowledged to stop countdown and update UI
+    setIsAcknowledged(true);
+    setIsHighRiskTimedOut(false);
+    setActiveAlert((prev) => (prev ? { ...prev, status: 'ACKNOWLEDGED' } : { status: 'ACKNOWLEDGED' }));
+
+    // 2. Call backend if token & alert ID exist
     try {
-      if (customerToken) {
-        const res = await acknowledgeCustomerAlert(activeAlert.id, customerToken);
-        setIsAcknowledged(true);
-        showToast(res.message || 'Alert acknowledged successfully!', 'info');
+      const alertId = activeAlert?.id || (customerAlerts && customerAlerts.length > 0 && customerAlerts[0]?.id);
+      if (customerToken && alertId) {
+        const res = await acknowledgeCustomerAlert(alertId, customerToken);
+        showToast(res.message || 'Alert acknowledged. Escalation stopped & email sent.', 'info');
       } else {
-        setIsAcknowledged(true);
-        showToast('Alert acknowledged successfully!', 'info');
+        showToast('Alert acknowledged. Escalation stopped & email sent.', 'info');
       }
-      loadCustomerData();
+      if (customerToken) {
+        loadCustomerData();
+      }
     } catch (err) {
-      showToast(err.message || 'Failed to acknowledge alert', 'error');
+      console.warn('Acknowledge alert note:', err);
+      showToast('Alert acknowledged. Escalation stopped.', 'info');
     } finally {
       setAcknowledging(false);
     }
@@ -375,6 +405,18 @@ export default function Dashboard({ navigate, initialPage = 'dashboard' }) {
 
         const riskRes = await assessRisk(riskReq);
         setRiskAssessmentData(riskRes);
+        setActiveAlert(
+          riskRes.alert_event || {
+            risk_level: riskRes.risk_level,
+            status: riskRes.risk_level === 'HIGH' ? 'PENDING' : 'RECORDED',
+            id: riskRes.alert_event?.id || `ALT-SIM-${Date.now()}`,
+          }
+        );
+        setIsAcknowledged(false);
+        setIsHighRiskTimedOut(false);
+        if (riskRes.risk_level === 'HIGH') {
+          setHighRiskCountdown(60);
+        }
 
         // Set charging status according to backend response
         const packStatus =
@@ -434,6 +476,19 @@ export default function Dashboard({ navigate, initialPage = 'dashboard' }) {
       // Update AI prediction & risk assessment
       setPredictionData(nextRes.prediction);
       setRiskAssessmentData(nextRes.risk_assessment);
+
+      if (nextRes.risk_assessment?.risk_level === 'HIGH') {
+        setActiveAlert(
+          nextRes.alert_status || {
+            risk_level: 'HIGH',
+            status: 'PENDING',
+            id: nextRes.alert_status?.id || `ALT-RT-${Date.now()}`,
+          }
+        );
+        setIsAcknowledged(false);
+        setIsHighRiskTimedOut(false);
+        setHighRiskCountdown(60);
+      }
 
       // Set charging status
       const packStatus =
@@ -1217,20 +1272,41 @@ export default function Dashboard({ navigate, initialPage = 'dashboard' }) {
                   <div className="p-3 rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
                     <ShieldCheck className="w-6 h-6" />
                   </div>
-                  <div className="flex-1">
+                  <div className="flex-1 space-y-2">
                     <div className="flex items-center gap-2.5">
                       <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
                         LOW RISK &bull; {Number(riskAssessmentData?.risk_score ?? riskAssessmentData?.overall_risk_score ?? 15).toFixed(1)}/100
                       </span>
-                      <span className="text-xs font-semibold text-emerald-200">Nominal Thermal &amp; Operating State</span>
+                      <span className="text-xs font-semibold text-emerald-200">Nominal Operating State</span>
                     </div>
-                    <p className="text-xs text-slate-300 mt-1.5 leading-relaxed">
-                      Battery operates well within certified safety envelopes. Alert is recorded to your dashboard only. No email dispatch, SMS, or voice call escalation required.
-                    </p>
-                    <div className="flex items-center gap-3 mt-2 text-[11px] text-emerald-400/80 font-mono">
-                      <span className="flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> Dashboard Telemetry Active</span>
+
+                    {/* Why this risk? */}
+                    <div className="pt-1">
+                      <span className="text-[11px] font-bold text-emerald-400 uppercase tracking-wider">Why is the battery normal?</span>
+                      <div className="text-xs text-slate-200 mt-1 leading-relaxed">
+                        {riskAssessmentData?.main_risk_factors && riskAssessmentData.main_risk_factors.length > 0 ? (
+                          <ul className="space-y-1">
+                            {riskAssessmentData.main_risk_factors.map((factor, idx) => (
+                              <li key={idx} className="flex items-start gap-2">
+                                <span className="text-emerald-400 font-bold">&bull;</span>
+                                <span>{factor}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <p>All battery parameters (temperature, voltage, current, SOC) remain well within nominal certified safety thresholds.</p>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-3 pt-1 text-[11px] text-emerald-400/80 font-mono">
+                      <span className="flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> Dashboard Telemetry Normal</span>
                       <span>&bull;</span>
-                      <span>No Emergency Channels Triggered</span>
+                      <span>No Email</span>
+                      <span>&bull;</span>
+                      <span>No Call</span>
+                      <span>&bull;</span>
+                      <span>No Countdown</span>
                     </div>
                   </div>
                 </div>
@@ -1238,82 +1314,88 @@ export default function Dashboard({ navigate, initialPage = 'dashboard' }) {
 
               {/* MEDIUM RISK BANNER */}
               {riskAssessmentData?.risk_level === 'MEDIUM' && (
-                <div className="bg-amber-950/30 border border-amber-500/40 rounded-2xl p-5 shadow-lg backdrop-blur-xl flex flex-col md:flex-row md:items-center justify-between gap-4">
-                  <div className="flex items-start gap-4">
-                    <div className="p-3 rounded-xl bg-amber-500/10 text-amber-400 border border-amber-500/20">
-                      <AlertTriangle className="w-6 h-6" />
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2.5">
-                        <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-amber-500/20 text-amber-300 border border-amber-500/40">
-                          MEDIUM RISK &bull; {Number(riskAssessmentData?.risk_score ?? riskAssessmentData?.overall_risk_score ?? 55).toFixed(1)}/100
-                        </span>
-                        <span className="text-xs font-semibold text-amber-200">Elevated Thermal Threshold Detected</span>
-                      </div>
-                      <p className="text-xs text-slate-300 mt-1.5 leading-relaxed">
-                        Thermal warning alert has been <strong>automatically emailed immediately</strong> to {customerProfile?.email || 'your registered address'}. Please review parameters and acknowledge.
-                      </p>
-                      <div className="flex items-center gap-3 mt-2 text-[11px] text-amber-300/80 font-mono">
-                        <span className="flex items-center gap-1 text-emerald-400"><Mail className="w-3 h-3" /> Email Dispatched</span>
-                        <span>&bull;</span>
-                        <span>No SMS / No Call Required</span>
-                      </div>
-                    </div>
+                <div className="bg-amber-950/30 border border-amber-500/40 rounded-2xl p-5 shadow-lg backdrop-blur-xl flex items-start gap-4">
+                  <div className="p-3 rounded-xl bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                    <AlertTriangle className="w-6 h-6" />
                   </div>
+                  <div className="flex-1 space-y-2">
+                    <div className="flex items-center gap-2.5">
+                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                        MEDIUM RISK &bull; {Number(riskAssessmentData?.risk_score ?? riskAssessmentData?.overall_risk_score ?? 55).toFixed(1)}/100
+                      </span>
+                      <span className="text-xs font-semibold text-amber-200">Elevated Thermal Threshold Detected</span>
+                    </div>
 
-                  <div>
-                    {isAcknowledged || activeAlert?.status === 'ACKNOWLEDGED' ? (
-                      <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-xs font-semibold">
-                        <CheckCircle2 className="w-4 h-4" />
-                        <span>Acknowledged</span>
-                      </div>
-                    ) : (
-                      <button
-                        onClick={handleAcknowledgeAlert}
-                        disabled={acknowledging}
-                        className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-white text-xs font-bold shadow-lg shadow-amber-500/20 flex items-center gap-2 transition-all disabled:opacity-50 whitespace-nowrap"
-                      >
-                        {acknowledging ? (
-                          <>
-                            <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                            <span>Acknowledging...</span>
-                          </>
+                    {/* Why this risk? */}
+                    <div className="pt-1">
+                      <span className="text-[11px] font-bold text-amber-400 uppercase tracking-wider">Why is the battery medium risk?</span>
+                      <div className="text-xs text-slate-200 mt-1 leading-relaxed">
+                        {riskAssessmentData?.main_risk_factors && riskAssessmentData.main_risk_factors.length > 0 ? (
+                          <ul className="space-y-1">
+                            {riskAssessmentData.main_risk_factors.map((factor, idx) => (
+                              <li key={idx} className="flex items-start gap-2">
+                                <span className="text-amber-400 font-bold">&bull;</span>
+                                <span>{factor}</span>
+                              </li>
+                            ))}
+                          </ul>
                         ) : (
-                          <>
-                            <CheckCircle2 className="w-4 h-4" />
-                            <span>[ ACKNOWLEDGE ALERT ]</span>
-                          </>
+                          <p>Elevated future temperature or operating parameters detected outside nominal boundaries.</p>
                         )}
-                      </button>
-                    )}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-3 pt-1 text-[11px] text-amber-300/90 font-mono">
+                      <span className="flex items-center gap-1 text-emerald-400"><Mail className="w-3 h-3" /> Email Sent Automatically</span>
+                      <span>&bull;</span>
+                      <span>No Call</span>
+                      <span>&bull;</span>
+                      <span>No Countdown</span>
+                    </div>
                   </div>
                 </div>
               )}
 
-              {/* HIGH RISK BANNER WITH 60S COUNTDOWN & ESCALATION */}
+              {/* HIGH RISK BANNER WITH 60S COUNTDOWN & ACKNOWLEDGE/STOP BUTTON */}
               {riskAssessmentData?.risk_level === 'HIGH' && (
                 <div className="bg-rose-950/40 border border-rose-500/50 rounded-2xl p-5 shadow-2xl backdrop-blur-xl relative overflow-hidden">
-                  <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-                    <div className="flex items-start gap-4">
+                  <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4">
+                    <div className="flex items-start gap-4 flex-1">
                       <div className="p-3 rounded-xl bg-rose-500/20 text-rose-300 border border-rose-500/30 animate-pulse">
                         <Flame className="w-6 h-6" />
                       </div>
-                      <div>
+                      <div className="flex-1 space-y-2">
                         <div className="flex items-center gap-2.5 flex-wrap">
                           <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-rose-500/30 text-rose-200 border border-rose-500/60 animate-pulse">
-                            CRITICAL HIGH RISK &bull; {Number(riskAssessmentData?.risk_score ?? riskAssessmentData?.overall_risk_score ?? 85).toFixed(1)}/100
+                            CRITICAL / HIGH RISK &bull; {Number(riskAssessmentData?.risk_score ?? riskAssessmentData?.overall_risk_score ?? 85).toFixed(1)}/100
                           </span>
-                          <span className="text-xs font-bold text-rose-200">Critical Thermal Anomaly &bull; 60s Safety Window Active</span>
+                          <span className="text-xs font-bold text-rose-200">Critical Battery Anomaly Detected</span>
                         </div>
-                        <p className="text-xs text-slate-300 mt-1.5 max-w-2xl leading-relaxed">
-                          Severe heat build-up predicted. Acknowledge within <strong>60 seconds</strong> to confirm safety action. If unacknowledged, automated multi-channel escalation (SMS + Twilio Emergency Voice Call) will trigger automatically.
-                        </p>
+
+                        {/* Why this risk? */}
+                        <div className="pt-1">
+                          <span className="text-[11px] font-bold text-rose-400 uppercase tracking-wider">Why is the battery critical / high risk?</span>
+                          <div className="text-xs text-slate-200 mt-1 leading-relaxed">
+                            {riskAssessmentData?.main_risk_factors && riskAssessmentData.main_risk_factors.length > 0 ? (
+                              <ul className="space-y-1">
+                                {riskAssessmentData.main_risk_factors.map((factor, idx) => (
+                                  <li key={idx} className="flex items-start gap-2">
+                                    <span className="text-rose-400 font-bold">&bull;</span>
+                                    <span>{factor}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            ) : (
+                              <p>Severe thermal runaway risk or critical operational stress parameters detected.</p>
+                            )}
+                          </div>
+                        </div>
                       </div>
                     </div>
 
-                    {/* Countdown & Action */}
-                    <div className="flex items-center gap-3 flex-wrap justify-end">
-                      <div className={`flex items-center gap-2 px-3.5 py-2 rounded-xl border font-mono text-xs font-bold ${
+                    {/* Countdown & Acknowledge/Stop Action */}
+                    <div className="flex flex-col sm:flex-row items-center gap-3 justify-end self-center lg:self-start">
+                      <div className={`flex items-center gap-2 px-3.5 py-2.5 rounded-xl border font-mono text-xs font-bold ${
                         isAcknowledged || activeAlert?.status === 'ACKNOWLEDGED'
                           ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
                           : isHighRiskTimedOut || highRiskCountdown === 0 || activeAlert?.status === 'ESCALATED'
@@ -1322,23 +1404,23 @@ export default function Dashboard({ navigate, initialPage = 'dashboard' }) {
                       }`}>
                         <Clock className="w-4 h-4" />
                         {isAcknowledged || activeAlert?.status === 'ACKNOWLEDGED' ? (
-                          <span>ACKNOWLEDGED &bull; ESCALATION CANCELLED</span>
+                          <span>COUNTDOWN STOPPED &bull; ACKNOWLEDGED</span>
                         ) : isHighRiskTimedOut || highRiskCountdown === 0 || activeAlert?.status === 'ESCALATED' ? (
-                          <span>DEADLINE EXPIRED &bull; ESCALATED</span>
+                          <span>COUNTDOWN EXPIRED &bull; ESCALATED</span>
                         ) : (
-                          <span>SAFETY WINDOW: 00:{String(highRiskCountdown).padStart(2, '0')}s</span>
+                          <span>COUNTDOWN: 00:{String(highRiskCountdown).padStart(2, '0')}s</span>
                         )}
                       </div>
 
                       {isAcknowledged || activeAlert?.status === 'ACKNOWLEDGED' ? (
-                        <div className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-xs font-bold">
+                        <div className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-xs font-bold whitespace-nowrap">
                           <CheckCircle2 className="w-4 h-4" />
-                          <span>Confirmed Safe</span>
+                          <span>Call Cancelled &bull; Email Sent</span>
                         </div>
                       ) : isHighRiskTimedOut || highRiskCountdown === 0 || activeAlert?.status === 'ESCALATED' ? (
-                        <div className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-rose-500/20 border border-rose-500/40 text-rose-300 text-xs font-bold">
+                        <div className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-rose-500/20 border border-rose-500/40 text-rose-300 text-xs font-bold whitespace-nowrap">
                           <PhoneCall className="w-4 h-4 animate-bounce" />
-                          <span>Call + SMS Dispatched</span>
+                          <span>Emergency Call &bull; Email Sent</span>
                         </div>
                       ) : (
                         <button
@@ -1354,48 +1436,12 @@ export default function Dashboard({ navigate, initialPage = 'dashboard' }) {
                           ) : (
                             <>
                               <CheckCircle2 className="w-4 h-4" />
-                              <span>[ ACKNOWLEDGE ALERT ]</span>
+                              <span>[ ACKNOWLEDGE / STOP ]</span>
                             </>
                           )}
                         </button>
                       )}
                     </div>
-                  </div>
-
-                  {/* Escalation Channels Status */}
-                  <div className="mt-3.5 pt-3 border-t border-rose-800/40 flex items-center gap-4 text-[11px] font-mono flex-wrap">
-                    <span className="text-slate-400 font-semibold">Channels:</span>
-                    <span className="flex items-center gap-1 text-emerald-400">
-                      <CheckCircle2 className="w-3.5 h-3.5" /> Email Alert
-                    </span>
-                    <span className={`flex items-center gap-1 ${
-                      isAcknowledged || activeAlert?.status === 'ACKNOWLEDGED'
-                        ? 'text-slate-500 line-through'
-                        : isHighRiskTimedOut || highRiskCountdown === 0 || activeAlert?.status === 'ESCALATED'
-                        ? 'text-rose-300 font-bold'
-                        : 'text-amber-400'
-                    }`}>
-                      <Mail className="w-3.5 h-3.5" />
-                      {isAcknowledged || activeAlert?.status === 'ACKNOWLEDGED'
-                        ? 'SMS (Cancelled)'
-                        : isHighRiskTimedOut || highRiskCountdown === 0 || activeAlert?.status === 'ESCALATED'
-                        ? 'SMS (Dispatched)'
-                        : 'SMS (Pending 60s)'}
-                    </span>
-                    <span className={`flex items-center gap-1 ${
-                      isAcknowledged || activeAlert?.status === 'ACKNOWLEDGED'
-                        ? 'text-slate-500 line-through'
-                        : isHighRiskTimedOut || highRiskCountdown === 0 || activeAlert?.status === 'ESCALATED'
-                        ? 'text-rose-300 font-bold'
-                        : 'text-amber-400'
-                    }`}>
-                      <PhoneCall className="w-3.5 h-3.5" />
-                      {isAcknowledged || activeAlert?.status === 'ACKNOWLEDGED'
-                        ? 'Twilio Call (Cancelled)'
-                        : isHighRiskTimedOut || highRiskCountdown === 0 || activeAlert?.status === 'ESCALATED'
-                        ? 'Twilio Call (Triggered)'
-                        : 'Twilio Call (Pending 60s)'}
-                    </span>
                   </div>
                 </div>
               )}

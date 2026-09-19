@@ -1,33 +1,36 @@
-import urllib.request
-import urllib.parse
-import json
+import os
 import sys
+import json
 
-BASE_URL = "http://127.0.0.1:8000"
+base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, base_dir)
+
+from fastapi.testclient import TestClient
+from app.main import app
+
+client = TestClient(app)
 
 def request(path, method="GET", body=None, token=None):
-    url = f"{BASE_URL}{path}"
     headers = {"Accept": "application/json"}
-    if body is not None:
-        headers["Content-Type"] = "application/json"
-        data = json.dumps(body).encode("utf-8")
-    else:
-        data = None
     if token:
         headers["Authorization"] = f"Bearer {token}"
+    
+    if method == "GET":
+        resp = client.get(path, headers=headers)
+    elif method == "POST":
+        resp = client.post(path, json=body, headers=headers)
+    elif method == "PUT":
+        resp = client.put(path, json=body, headers=headers)
+    elif method == "DELETE":
+        resp = client.delete(path, headers=headers)
+    else:
+        resp = client.request(method, path, json=body, headers=headers)
 
-    req = urllib.request.Request(url, data=data, headers=headers, method=method)
     try:
-        with urllib.request.urlopen(req) as resp:
-            content = resp.read().decode("utf-8")
-            return resp.status, json.loads(content) if content else {}
-    except urllib.error.HTTPError as e:
-        content = e.read().decode("utf-8")
-        try:
-            err_json = json.loads(content)
-        except Exception:
-            err_json = {"raw": content}
-        return e.code, err_json
+        data = resp.json()
+    except Exception:
+        data = {"raw": resp.text}
+    return resp.status_code, data
 
 def test_workflow():
     print("=== EV TWINGUARD COMPLETE SYSTEM WORKFLOW TEST ===")
