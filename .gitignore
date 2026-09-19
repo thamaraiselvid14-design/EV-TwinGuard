@@ -23,6 +23,13 @@ wheels/
 .installed.cfg
 *.egg
 
+# Test & Coverage Artifacts
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
 # Node.js
 node_modules/
 npm-debug.log*
@@ -33,9 +40,19 @@ dist/
 dist-ssr/
 *.local
 
-# Environment Variables
+# Environment Variables & Secrets (Keep .env.example)
 .env
+.env.*
+!.env.example
+*.env
 *.env.local
+
+# Databases (Local/Private dynamic data)
+*.db
+*.sqlite
+*.sqlite3
+backend/data/*.db
+data/*.db
 
 # IDE & OS
 .vscode/
@@ -47,6 +64,8 @@ Thumbs.db
 
 # Logs
 *.log
+*.log.*
+logs/
 
 # Large Datasets (Prevent committing 1M+ records)
 *.csv

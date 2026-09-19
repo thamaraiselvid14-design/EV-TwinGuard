@@ -48,15 +48,17 @@ export default function WhatIfChargingSimulator({ currentBatteryState }) {
   // Sync state if dashboard provides active twin data
   useEffect(() => {
     if (currentBatteryState) {
+      const parseVal = (v, def) => (v !== '' && v != null && !isNaN(Number(v)) ? parseFloat(v) : def);
+      const parseIntVal = (v, def) => (v !== '' && v != null && !isNaN(Number(v)) ? parseInt(v, 10) : def);
       setBatteryState({
         battery_id: currentBatteryState.battery_id || 'EV001',
-        soc: parseFloat(currentBatteryState.soc ?? 80.0),
-        voltage: parseFloat(currentBatteryState.voltage ?? 405.0),
-        charging_current: parseFloat(currentBatteryState.charging_current ?? 18.0),
-        current_temperature: parseFloat(currentBatteryState.current_temperature ?? currentBatteryState.battery_temperature ?? 35.0),
-        ambient_temperature: parseFloat(currentBatteryState.ambient_temperature ?? 28.0),
-        battery_age: parseFloat(currentBatteryState.battery_age ?? 12.0),
-        charging_cycles: parseInt(currentBatteryState.charging_cycles ?? 300, 10),
+        soc: parseVal(currentBatteryState.soc, 80.0),
+        voltage: parseVal(currentBatteryState.voltage, 405.0),
+        charging_current: parseVal(currentBatteryState.charging_current, 18.0),
+        current_temperature: parseVal(currentBatteryState.current_temperature ?? currentBatteryState.battery_temperature, 35.0),
+        ambient_temperature: parseVal(currentBatteryState.ambient_temperature, 28.0),
+        battery_age: parseVal(currentBatteryState.battery_age, 12.0),
+        charging_cycles: parseIntVal(currentBatteryState.charging_cycles, 300),
       });
     }
   }, [currentBatteryState]);

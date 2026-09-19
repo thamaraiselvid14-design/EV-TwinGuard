@@ -120,3 +120,26 @@ def test_alert_history_api_endpoints():
     assert isinstance(data2, list)
     assert len(data2) > 0
 
+
+def test_safe_email_config_status():
+    resp = client.get("/alerts/email-status")
+    assert resp.status_code == 200
+    data = resp.json()
+
+    assert "smtp_configured" in data
+    assert "recipient_configured" in data
+    assert data["smtp_configured"] in ["YES", "NO"]
+    assert data["recipient_configured"] in ["YES", "NO"]
+
+    # CRITICAL: Verify NO password or secret keys are exposed
+    data_str = str(data).lower()
+    assert "password" not in data_str
+    assert "smtp_password" not in data_str
+    assert "secret" not in data_str
+
+    # Also test via /api/battery/alerts/email-status
+    resp2 = client.get("/api/battery/alerts/email-status")
+    assert resp2.status_code == 200
+    assert resp2.json() == data
+
+

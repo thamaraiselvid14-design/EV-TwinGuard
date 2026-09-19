@@ -17,6 +17,8 @@ import {
 import BatteryInformation from '../components/BatteryInformation';
 import InputModeSelector from '../components/InputModeSelector';
 import RealTimeDatasetPanel from '../components/RealTimeDatasetPanel';
+import AIPredictionCard from '../components/AIPredictionCard';
+import RiskFactors from '../components/RiskFactors';
 import RecommendationCard from '../components/RecommendationCard';
 import SafetySummaryCard from '../components/SafetySummaryCard';
 import SecurityAlertsPage from '../components/SecurityAlertsPage';
@@ -78,17 +80,9 @@ const NOMINAL_BASELINE_DATA = {
   charging_cycles: 300,
 };
 
-export default function Dashboard({ navigate, initialPage = 'dashboard' }) {
+export default function Dashboard({ navigate }) {
   // Exactly 3 main navigation pages ('dashboard' | 'alerts' | 'settings')
-  const [activePage, setActivePage] = useState(initialPage || 'dashboard');
-
-  useEffect(() => {
-    if (initialPage && (initialPage === 'dashboard' || initialPage === 'alerts' || initialPage === 'settings')) {
-      setActivePage(initialPage);
-    }
-  }, [initialPage]);
-
-  const [settingsActiveTab, setSettingsActiveTab] = useState('profile');
+  const [activePage, setActivePage] = useState('dashboard');
 
   // Customer session & profile state
   const customerToken = localStorage.getItem('customer_token');
@@ -886,6 +880,86 @@ export default function Dashboard({ navigate, initialPage = 'dashboard' }) {
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {activePage === 'dashboard' && (
           <div className="space-y-8">
+            {/* 0. CUSTOMER PERSONAL DETAILS & VEHICLE INFO (SHOWN WHEN LOGGED IN) */}
+            {customerProfile && (
+              <section className="bg-slate-900/90 border border-slate-800/90 rounded-2xl p-6 shadow-xl backdrop-blur-xl">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-5 border-b border-slate-800">
+                  <div className="flex items-center gap-3.5">
+                    <div className="w-12 h-12 rounded-2xl bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 flex items-center justify-center shadow-lg shadow-cyan-500/5">
+                      <User className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h2 className="text-lg font-bold text-white tracking-wide">{customerProfile.name}</h2>
+                        <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">
+                          {customerProfile.role || 'CUSTOMER'}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-400 mt-0.5">
+                        Registered Vehicle Owner &bull; EV Digital Twin Account
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={loadCustomerData}
+                      title="Sync Profile & Telemetry"
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-300 text-xs font-medium transition"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5 text-cyan-400" />
+                      <span>Sync Data</span>
+                    </button>
+                    <button
+                      onClick={handleCustomerLogout}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-300 text-xs font-medium transition"
+                    >
+                      <LogOut className="w-3.5 h-3.5" />
+                      <span>Sign Out</span>
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-4 pt-5">
+                  <div className="bg-slate-950/60 border border-slate-800/80 rounded-xl p-3.5">
+                    <span className="text-[11px] text-slate-400 flex items-center gap-1.5 mb-1">
+                      <Mail className="w-3.5 h-3.5 text-cyan-400" /> Email Address
+                    </span>
+                    <span className="text-xs sm:text-sm font-semibold text-slate-200 block truncate" title={customerProfile.email}>
+                      {customerProfile.email}
+                    </span>
+                  </div>
+
+                  <div className="bg-slate-950/60 border border-slate-800/80 rounded-xl p-3.5">
+                    <span className="text-[11px] text-slate-400 flex items-center gap-1.5 mb-1">
+                      <Phone className="w-3.5 h-3.5 text-emerald-400" /> Mobile Number
+                    </span>
+                    <span className="text-xs sm:text-sm font-semibold text-slate-200 block">
+                      {customerProfile.phone || '--'}
+                    </span>
+                  </div>
+
+                  <div className="bg-slate-950/60 border border-slate-800/80 rounded-xl p-3.5">
+                    <span className="text-[11px] text-slate-400 flex items-center gap-1.5 mb-1">
+                      <Car className="w-3.5 h-3.5 text-blue-400" /> Vehicle Model
+                    </span>
+                    <span className="text-xs sm:text-sm font-semibold text-slate-200 block truncate">
+                      {customerProfile.vehicle_model || 'Tata vehicle'}
+                    </span>
+                  </div>
+
+                  <div className="bg-slate-950/60 border border-slate-800/80 rounded-xl p-3.5">
+                    <span className="text-[11px] text-slate-400 flex items-center gap-1.5 mb-1">
+                      <Zap className="w-3.5 h-3.5 text-amber-400" /> Battery Pack ID
+                    </span>
+                    <span className="text-xs sm:text-sm font-bold text-amber-300 font-mono block truncate">
+                      {customerProfile.battery_id || batteryData.battery_id || 'BAT-AX-101'}
+                    </span>
+                  </div>
+                </div>
+              </section>
+            )}
+
             {/* 1. DATA INPUT MODE SELECTOR & ACTIVE INPUT OPTION */}
             <section className="space-y-6">
               <InputModeSelector
@@ -1180,6 +1254,23 @@ export default function Dashboard({ navigate, initialPage = 'dashboard' }) {
               )}
             </section>
 
+            {/* 2. SHARED AI ANALYSIS OUTCOMES: PREDICTION & RISK FACTORS */}
+            <section className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
+              <AIPredictionCard
+                prediction={predictionData}
+                riskAssessment={riskAssessmentData}
+                batteryData={batteryData}
+                loading={analyzing || loadingNext}
+                error={analysisError && !predictionData ? analysisError : null}
+              />
+
+              <RiskFactors
+                riskAssessment={riskAssessmentData}
+                loading={analyzing || loadingNext}
+                error={analysisError && !riskAssessmentData ? analysisError : null}
+              />
+            </section>
+
             {/* 3. RECOMMENDATION */}
             <section>
               <RecommendationCard
@@ -1401,6 +1492,119 @@ export default function Dashboard({ navigate, initialPage = 'dashboard' }) {
               )}
             </section>
 
+            {/* 6. CUSTOMER HISTORY LOGS (ONLY WHEN LOGGED IN) */}
+            {customerProfile && (
+              <section className="space-y-6 pt-2">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  {/* Analysis History */}
+                  <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-5 shadow-xl backdrop-blur-xl">
+                    <div className="flex items-center justify-between pb-3 border-b border-slate-800 mb-3">
+                      <div className="flex items-center gap-2">
+                        <History className="w-4 h-4 text-cyan-400" />
+                        <h3 className="text-sm font-bold text-white">Your Battery Analyses</h3>
+                      </div>
+                      <span className="text-[11px] font-mono text-cyan-300 bg-cyan-500/10 border border-cyan-500/30 px-2 py-0.5 rounded-full">
+                        {customerAnalyses.length} Records
+                      </span>
+                    </div>
+
+                    <div className="overflow-x-auto max-h-64 scrollbar-thin scrollbar-thumb-slate-800">
+                      {customerAnalyses.length === 0 ? (
+                        <p className="text-xs text-slate-500 text-center py-6">No battery analyses recorded yet.</p>
+                      ) : (
+                        <table className="w-full text-left text-xs font-mono">
+                          <thead>
+                            <tr className="border-b border-slate-800 text-slate-400 text-[10px] uppercase">
+                              <th className="pb-2">Time</th>
+                              <th className="pb-2">Temp</th>
+                              <th className="pb-2">Pred Temp</th>
+                              <th className="pb-2">Risk</th>
+                              <th className="pb-2">Level</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-800/50">
+                            {customerAnalyses.slice(0, 10).map((row) => (
+                              <tr key={row.id}>
+                                <td className="py-2 text-slate-400">{new Date(row.created_at).toLocaleTimeString()}</td>
+                                <td className="py-2 text-slate-200">{Number(row.battery_temperature).toFixed(1)}°C</td>
+                                <td className="py-2 text-orange-300 font-semibold">{Number(row.predicted_temperature).toFixed(1)}°C</td>
+                                <td className="py-2 text-white font-bold">{Number(row.risk_value).toFixed(1)}</td>
+                                <td className="py-2">
+                                  <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
+                                    row.risk_level === 'HIGH' ? 'bg-rose-500/20 text-rose-300' :
+                                    row.risk_level === 'MEDIUM' ? 'bg-amber-500/20 text-amber-300' :
+                                    'bg-emerald-500/20 text-emerald-300'
+                                  }`}>
+                                    {row.risk_level}
+                                  </span>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Customer Alerts */}
+                  <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-5 shadow-xl backdrop-blur-xl">
+                    <div className="flex items-center justify-between pb-3 border-b border-slate-800 mb-3">
+                      <div className="flex items-center gap-2">
+                        <Bell className="w-4 h-4 text-rose-400" />
+                        <h3 className="text-sm font-bold text-white">Your Safety Alerts</h3>
+                      </div>
+                      <span className="text-[11px] font-mono text-rose-300 bg-rose-500/10 border border-rose-500/30 px-2 py-0.5 rounded-full">
+                        {customerAlerts.length} Alerts
+                      </span>
+                    </div>
+
+                    <div className="overflow-x-auto max-h-64 scrollbar-thin scrollbar-thumb-slate-800">
+                      {customerAlerts.length === 0 ? (
+                        <p className="text-xs text-slate-500 text-center py-6">No safety alerts recorded.</p>
+                      ) : (
+                        <table className="w-full text-left text-xs font-mono">
+                          <thead>
+                            <tr className="border-b border-slate-800 text-slate-400 text-[10px] uppercase">
+                              <th className="pb-2">Time</th>
+                              <th className="pb-2">Level</th>
+                              <th className="pb-2">Status</th>
+                              <th className="pb-2">Channels</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-800/50">
+                            {customerAlerts.slice(0, 10).map((alert) => (
+                              <tr key={alert.id}>
+                                <td className="py-2 text-slate-400">{new Date(alert.created_at).toLocaleTimeString()}</td>
+                                <td className="py-2">
+                                  <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
+                                    alert.risk_level === 'HIGH' ? 'bg-rose-500/20 text-rose-300' :
+                                    alert.risk_level === 'MEDIUM' ? 'bg-amber-500/20 text-amber-300' :
+                                    'bg-emerald-500/20 text-emerald-300'
+                                  }`}>
+                                    {alert.risk_level}
+                                  </span>
+                                </td>
+                                <td className="py-2 font-bold">
+                                  <span className={
+                                    alert.status === 'ACKNOWLEDGED' ? 'text-emerald-400' :
+                                    alert.status === 'ESCALATED' ? 'text-rose-400' : 'text-amber-400'
+                                  }>
+                                    {alert.status}
+                                  </span>
+                                </td>
+                                <td className="py-2 text-slate-300 text-[11px]">
+                                  {alert.call_triggered ? 'Call + SMS + Email' : alert.email_sent ? 'Email Only' : 'Dashboard'}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </section>
+            )}
           </div>
         )}
 
@@ -1411,9 +1615,6 @@ export default function Dashboard({ navigate, initialPage = 'dashboard' }) {
             latestPrediction={predictionData}
             latestRiskAssessment={riskAssessmentData}
             latestChargingStatus={chargingStatus}
-            customerAnalyses={customerAnalyses}
-            customerAlerts={customerAlerts}
-            customerProfile={customerProfile}
             refreshTrigger={alertRefreshTrigger}
           />
         )}
@@ -1421,14 +1622,6 @@ export default function Dashboard({ navigate, initialPage = 'dashboard' }) {
         {/* PAGE 3 — SETTINGS */}
         {activePage === 'settings' && (
           <SettingsPage
-            customerProfile={customerProfile}
-            customerAnalyses={customerAnalyses}
-            customerAlerts={customerAlerts}
-            customerToken={customerToken}
-            onLogout={handleCustomerLogout}
-            onRefreshProfile={loadCustomerData}
-            activeTab={settingsActiveTab}
-            onTabChange={(tab) => setSettingsActiveTab(tab)}
             currentBatteryState={batteryData}
             realtimeStatus={realtimeStatus}
             realtimeRunning={realtimeRunning}

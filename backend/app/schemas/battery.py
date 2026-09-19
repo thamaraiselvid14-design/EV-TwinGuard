@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional, Union
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 
@@ -148,6 +148,8 @@ class AlertDispatchDetails(BaseModel):
     call_status: Optional[str] = None
     call_sid: Optional[str] = None
     full_report: Optional[str] = None
+    risk_reason: Optional[str] = None
+    contributing_parameters: Optional[List[Dict[str, str]]] = None
 
 
 class RiskAssessmentResponse(BaseModel):
@@ -161,6 +163,8 @@ class RiskAssessmentResponse(BaseModel):
     alert_triggered: bool = Field(default=False, description="True if MEDIUM or HIGH risk triggered automatic alert.")
     charging_status: str = Field(default="CONNECTED", description="'CONNECTED' or 'SIMULATED DISCONNECT'.")
     alert_event: Optional[AlertDispatchDetails] = Field(default=None, description="Details of automated alert dispatches.")
+    risk_reason: Optional[str] = Field(default=None, description="Detailed explanatory reason for the assigned risk level.")
+    contributing_parameters: Optional[List[Dict[str, str]]] = Field(default=None, description="Physical parameters responsible for current risk.")
 
 
 class BatteryPredictionRequest(BaseModel):
@@ -339,14 +343,29 @@ class RiskFactorBreakdown(BaseModel):
 
 class RiskAssessment(BaseModel):
     overall_risk_score: float = Field(..., ge=0.0, le=100.0)
+    risk_score: Optional[float] = Field(default=None, ge=0.0, le=100.0)
     risk_level: Literal["LOW", "MEDIUM", "HIGH"]
+    level: Optional[Literal["LOW", "MEDIUM", "HIGH"]] = None
     risk_factors: RiskFactorBreakdown
     recommendations: List[str] = Field(default_factory=list)
     alert_triggered: bool
     alert_severity: Optional[Literal["INFO", "WARNING", "CRITICAL"]] = None
     main_risk_factors: List[str] = Field(default_factory=list)
+    factors: List[str] = Field(default_factory=list)
     charging_status: str = Field(default="CONNECTED")
     alert_event: Optional[AlertDispatchDetails] = None
+    risk_reason: Optional[str] = None
+    contributing_parameters: Optional[List[Dict[str, str]]] = None
+
+    @model_validator(mode="after")
+    def sync_risk_assessment_aliases(self):
+        if self.risk_score is None:
+            self.risk_score = self.overall_risk_score
+        if self.level is None:
+            self.level = self.risk_level
+        if not self.factors:
+            self.factors = self.main_risk_factors
+        return self
 
 
 class ComprehensiveAnalysisResponse(BaseModel):
@@ -432,3 +451,34 @@ class AlertHistoryItem(BaseModel):
     charging_status: str
     alert_status: Optional[str] = "LOGGED"
     main_risk_factors: List[str] = Field(default_factory=list)
+
+
+class RealtimeStatusResponse(BaseModel):
+    running: bool
+    interval_seconds: int = 3
+    current_index: int = 0
+    total_records: int = 0
+    source_name: str = "EV Battery Fleet Dataset"
+
+
+class RealtimeStartRequest(BaseModel):
+    interval_seconds: Optional[int] = 3
+
+
+class AlertStatusSummary(BaseModel):
+    email_sent: bool = False
+    call_triggered: bool = False
+    charging_status: str = "CONNECTED"
+
+
+class RealtimeNextResponse(BaseModel):
+    status: str = "success"
+    index: int
+    total_records: int
+    is_complete: bool = False
+    battery_id: Optional[str] = None
+    telemetry: BatteryInput
+    prediction: PredictionResult
+    risk_assessment: Union[RiskAssessment, RiskAssessmentResponse, Dict[str, Any]]
+    alert_status: AlertStatusSummary
+    skipped_invalid: bool = False

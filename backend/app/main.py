@@ -1,3 +1,5 @@
+import asyncio
+from contextlib import asynccontextmanager
 import os
 from pathlib import Path
 from dotenv import load_dotenv
@@ -5,6 +7,10 @@ from fastapi import FastAPI, Depends, status
 from fastapi.middleware.cors import CORSMiddleware
 from app.api.routes import router as api_router
 from app.api.battery import router as battery_router
+from app.api.realtime import router as realtime_router
+from app.api.auth import router as auth_router
+from app.api.customer import router as customer_router
+from app.api.owner import router as owner_router
 from typing import List
 from app.schemas.battery import (
     AlertHistoryItem,
@@ -23,11 +29,39 @@ from app.services.simulation_service import DigitalTwinSimulationService, get_si
 # Load environment variables from .env if present
 base_dir = Path(__file__).resolve().parent.parent
 load_dotenv(base_dir / ".env")
+load_dotenv(base_dir.parent / ".env")
+
+
+async def escalation_background_worker():
+    """Periodically checks and escalates unacknowledged high-risk alerts past deadline."""
+    alert_service = get_alert_service()
+    while True:
+        try:
+            alert_service.check_and_escalate_pending_alerts()
+        except Exception:
+            pass
+        await asyncio.sleep(2)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup hook: Ensure database and default owner are seeded
+    from app.services.auth_service import get_auth_service
+    get_auth_service().seed_default_owner_if_not_exists()
+    worker_task = asyncio.create_task(escalation_background_worker())
+    yield
+    worker_task.cancel()
+    try:
+        await worker_task
+    except asyncio.CancelledError:
+        pass
+
 
 app = FastAPI(
     title="EV TwinGuard API",
     description="API for EV battery Digital Twin, ML temperature prediction, multi-factor risk scoring, and safety monitoring.",
     version="0.1.0",
+    lifespan=lifespan,
 )
 
 # CORS configuration
@@ -36,12 +70,19 @@ origins = [
     frontend_url,
     "http://localhost:5173",
     "http://127.0.0.1:5173",
+    "http://localhost:5174",
+    "http://127.0.0.1:5174",
+    "http://localhost:5175",
+    "http://127.0.0.1:5175",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
 ]
 allowed_origins = list(dict.fromkeys(filter(None, origins)))
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
+    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:[0-9]+)?",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -50,6 +91,11 @@ app.add_middleware(
 # Register API Routers under /api prefix
 app.include_router(api_router, prefix="/api")
 app.include_router(battery_router, prefix="/api")
+app.include_router(realtime_router, prefix="/api")
+app.include_router(realtime_router)
+app.include_router(auth_router, prefix="/api")
+app.include_router(customer_router, prefix="/api")
+app.include_router(owner_router, prefix="/api")
 
 
 @app.post(
@@ -110,6 +156,19 @@ async def direct_get_alert_history(
     alert_service: AlertService = Depends(get_alert_service),
 ) -> List[AlertHistoryItem]:
     return alert_service.get_alert_history(limit=limit)
+
+
+@app.get(
+    "/alerts/email-status",
+    tags=["Alerts"],
+    summary="Get Safe Email Configuration Status",
+    description="Reports whether SMTP and recipient are configured without exposing passwords.",
+)
+async def direct_get_email_status(
+    alert_service: AlertService = Depends(get_alert_service),
+):
+    return alert_service.get_email_config_status()
+
 
 
 @app.get("/", tags=["System"])

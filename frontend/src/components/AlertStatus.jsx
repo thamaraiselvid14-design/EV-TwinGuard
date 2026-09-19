@@ -51,8 +51,9 @@ export default function AlertStatus({
   const callStatusText = callTriggered ? 'TRIGGERED' : 'NOT TRIGGERED';
 
   // Charging Action
-  const chargingStatus =
+  const rawChargingStatus =
     riskAssessment?.charging_status || alertEvent?.charging_status || (isHigh ? 'SIMULATED DISCONNECT' : 'CONNECTED');
+  const chargingStatus = typeof rawChargingStatus === 'string' ? rawChargingStatus : 'CONNECTED';
   const isDisconnected = chargingStatus.toUpperCase().includes('DISCONNECT');
 
   return (

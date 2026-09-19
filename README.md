@@ -9,36 +9,57 @@ EV TwinGuard is a full-stack digital twin platform designed for real-time Electr
 ## 1. End-to-End System Workflow
 
 ```text
-MANUAL BATTERY INPUT ────────┐
-(ID, SOC, V, I, T, Env, Age) │
-                             ▼
-                  VALIDATE SENSOR VALUES
-                             │
-                             ▼
-                 AI TEMPERATURE PREDICTION
-              (Random Forest Regressor, R²=0.994)
-                             │
-                             ▼
-                  MULTI-FACTOR RISK ENGINE
-               (0–100 Weighted Composite Score)
-                             │
-       ┌─────────────────────┼─────────────────────┐
-       ▼                     ▼                     ▼
-   LOW (0–39)          MEDIUM (40–69)        HIGH (70–100)
-       │                     │                     │
-       ▼                     ▼                     ▼
-• Dashboard display   • Email report dispatch• Email report dispatch
-• Contactor CONNECTED • SQLite alert logged  • Emergency call triggered
-• No alerts triggered • Contactor CONNECTED  • SIMULATED DISCONNECT
-                                             • SQLite alert logged
-
-DATASET-SOURCED TELEMETRY ──► SAME VALIDATION ──► SAME PREDICTION ──► SAME RISK & ALERTS
-
-WHAT-IF CHARGING SIMULATOR:
-• 12A Scenario ──► AI Prediction ──► Risk Score & Level ──┐
-• 18A Scenario ──► AI Prediction ──► Risk Score & Level ──┼──► Recharts Comparison
-• 25A Scenario ──► AI Prediction ──► Risk Score & Level ──┘
+                 EV TwinGuard
+                      |
+              Input Mode Selector
+                 /           \
+          Manual Input    Real-Time Dataset
+                |                |
+                └───────┬────────┘
+                        ↓
+                 Data Validation
+                        ↓
+                AI Prediction
+             (Random Forest Regressor)
+                        ↓
+                  Risk Engine
+              (LOW / MEDIUM / HIGH)
+                        ↓
+                 Alert Service
+                    /       \
+                 Email     Call
+                        ↓
+                   SQLite DB
+                        ↓
+                  React UI
+                        ↓
+              What-If Digital Twin
 ```
+
+---
+
+## 2. Input Modes
+
+EV TwinGuard features a flexible **Two-Way Input System**:
+
+```text
+INPUT SOURCE
+
+[ Manual Input ]    [ Real-Time Dataset ]
+```
+
+### Mode 1 — Manual Input
+* Users can manually input custom physical telemetry parameters or select pre-configured scenario presets (Nominal Commute, Fast Charging, Thermal Stress).
+* Clicking **Analyze Battery** triggers validation, AI temperature prediction, multi-factor risk calculation, automated safety alerts, and updates all dashboard cards and SQLite alert history.
+
+### Mode 2 — Real-Time Dataset Stream
+* Simulates continuous real-time battery telemetry arriving sequentially from the backend dataset.
+* Provides **[ Start Stream ]**, **[ Pause Stream ]**, **[ Next Record ]**, and configurable polling interval (1s, 2s, 3s, 5s).
+* Automatically processes each incoming record through the exact same validation, ML prediction, risk scoring, alert dispatcher, and SQLite logging pipeline.
+* Renders a live stream activity history table showing real-time timestamps, temperatures, predictions, risk scores, and contactor statuses.
+
+> [!NOTE]
+> The Real-Time Dataset mode is a simulated real-time data stream for development/demo purposes. It can later be connected to actual physical BMS/IoT/EV CAN-bus telemetry.
 
 ---
 

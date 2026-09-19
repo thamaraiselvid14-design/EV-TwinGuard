@@ -19,12 +19,16 @@ from app.schemas.battery import (
     SimulationResponse,
     ChargingSimulationRequest,
     ChargingSimulationResponse,
+    RealtimeStatusResponse,
+    RealtimeStartRequest,
+    RealtimeNextResponse,
 )
 
 from app.services.alert_service import AlertService, get_alert_service
 from app.services.prediction_service import PredictionService, get_prediction_service
 from app.services.risk_service import RiskAssessmentService, get_risk_service
 from app.services.simulation_service import DigitalTwinSimulationService, get_simulation_service
+from app.services.realtime_service import RealtimeDatasetService, get_realtime_service
 
 logger = logging.getLogger(__name__)
 
@@ -217,3 +221,79 @@ async def sample_dataset_records(
 ):
     records = dataset_service.sample_records(n=n)
     return {"count": len(records), "data": records}
+
+
+@router.get(
+    "/realtime/status",
+    response_model=RealtimeStatusResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Get Real-Time Dataset Stream Status",
+)
+async def battery_get_stream_status(
+    realtime_service: RealtimeDatasetService = Depends(get_realtime_service),
+) -> RealtimeStatusResponse:
+    return realtime_service.get_status()
+
+
+@router.post(
+    "/realtime/start",
+    response_model=RealtimeStatusResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Start Real-Time Dataset Stream",
+)
+async def battery_start_stream(
+    req: Optional[RealtimeStartRequest] = None,
+    realtime_service: RealtimeDatasetService = Depends(get_realtime_service),
+) -> RealtimeStatusResponse:
+    interval = req.interval_seconds if req else 3
+    return realtime_service.start_stream(interval_seconds=interval)
+
+
+@router.post(
+    "/realtime/pause",
+    response_model=RealtimeStatusResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Pause Real-Time Dataset Stream",
+)
+async def battery_pause_stream(
+    realtime_service: RealtimeDatasetService = Depends(get_realtime_service),
+) -> RealtimeStatusResponse:
+    return realtime_service.pause_stream()
+
+
+@router.post(
+    "/realtime/reset",
+    response_model=RealtimeStatusResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Reset Real-Time Dataset Stream",
+)
+async def battery_reset_stream(
+    realtime_service: RealtimeDatasetService = Depends(get_realtime_service),
+) -> RealtimeStatusResponse:
+    return realtime_service.reset_stream()
+
+
+@router.get(
+    "/realtime/next",
+    response_model=RealtimeNextResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Fetch Next Real-Time Dataset Record & Analysis",
+)
+async def battery_get_next_record(
+    realtime_service: RealtimeDatasetService = Depends(get_realtime_service),
+) -> RealtimeNextResponse:
+    return realtime_service.get_next_record()
+
+
+@router.get(
+    "/alerts/email-status",
+    status_code=status.HTTP_200_OK,
+    summary="Get Safe Email Configuration Status",
+    description="Reports whether SMTP and recipient are configured without exposing passwords.",
+)
+async def get_email_status(
+    alert_service: AlertService = Depends(get_alert_service),
+):
+    return alert_service.get_email_config_status()
+
+

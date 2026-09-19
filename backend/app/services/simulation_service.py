@@ -109,8 +109,8 @@ class DigitalTwinSimulationService:
         current_temp = req.ambient_temperature + 2.0  # Initial pack resting temp slightly above ambient
         initial_temp = round(current_temp, 2)
         
-        # Degradation-based internal resistance (Ohms)
-        r_internal = 0.024 + (req.battery_age / 120.0) * 0.018 + (req.charging_cycles / 2000.0) * 0.025
+        # Degradation-based internal resistance (Ohms) for full pack
+        r_internal = 0.25 + (req.battery_age / 120.0) * 0.08 + (req.charging_cycles / 2000.0) * 0.08
         
         time_to_80: Optional[int] = None
         time_to_thermal_warn: Optional[int] = None
@@ -138,23 +138,23 @@ class DigitalTwinSimulationService:
                 delta_soc = (energy_kwh / PACK_CAPACITY_KWH) * 100.0
                 current_soc = min(100.0, current_soc + delta_soc)
 
-                # 2. Thermal Heat Generation (Watts): P_joule = I^2 * R
+                # 2. Thermal Heat Generation (Watts): P_joule = I^2 * R + entropic + polarization
                 joule_heat = (active_current ** 2) * r_internal
-                # Polarization heat when charging fast at high SOC
-                polarization = ((current_soc - 75.0) * 0.18 * active_current) if current_soc > 75.0 else 0.0
-                total_heat_gen = joule_heat + polarization
+                polarization = ((current_soc - 70.0) * 0.35 * active_current) if current_soc > 70.0 else 0.0
+                entropic = active_current * 3.5
+                total_heat_gen = joule_heat + polarization + entropic
 
                 # 3. Cooling Dissipation (Watts)
                 delta_t_ambient = max(0.0, current_temp - req.ambient_temperature)
-                ambient_convection = delta_t_ambient * 45.0
-                active_chiller = (req.cooling_efficiency * 1800.0) if current_temp > 32.0 else 0.0
+                ambient_convection = delta_t_ambient * 6.5
+                active_chiller = (req.cooling_efficiency * 60.0 * max(0.0, current_temp - 35.0)) if current_temp > 35.0 else 0.0
                 total_heat_dissipated = ambient_convection + active_chiller
 
                 # 4. Net Temperature Change
                 q_net = total_heat_gen - total_heat_dissipated
                 delta_temp = (q_net * dt_sec) / THERMAL_CAPACITY_J_PER_C
                 current_temp = current_temp + delta_temp
-                current_temp = max(req.ambient_temperature - 5.0, min(110.0, current_temp))
+                current_temp = max(req.ambient_temperature, min(110.0, current_temp))
 
             # Track peak metrics
             if current_temp > max_temp:

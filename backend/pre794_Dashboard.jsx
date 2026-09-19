@@ -8,15 +8,12 @@ import {
   pauseRealtimeStream,
   resetRealtimeStream,
   getRealtimeNext,
-  getCustomerProfile,
-  getCustomerAnalyses,
-  getCustomerAlerts,
-  analyzeCustomerBattery,
-  acknowledgeCustomerAlert,
 } from '../services/api';
 import BatteryInformation from '../components/BatteryInformation';
 import InputModeSelector from '../components/InputModeSelector';
 import RealTimeDatasetPanel from '../components/RealTimeDatasetPanel';
+import AIPredictionCard from '../components/AIPredictionCard';
+import RiskFactors from '../components/RiskFactors';
 import RecommendationCard from '../components/RecommendationCard';
 import SafetySummaryCard from '../components/SafetySummaryCard';
 import SecurityAlertsPage from '../components/SecurityAlertsPage';
@@ -47,13 +44,6 @@ import {
   Pause,
   ArrowRight,
   RotateCcw,
-  User,
-  Car,
-  Phone,
-  LogOut,
-  AlertCircle,
-  RefreshCw,
-  Lock,
 } from 'lucide-react';
 
 const EMPTY_BATTERY_DATA = {
@@ -78,34 +68,9 @@ const NOMINAL_BASELINE_DATA = {
   charging_cycles: 300,
 };
 
-export default function Dashboard({ navigate, initialPage = 'dashboard' }) {
+export default function Dashboard() {
   // Exactly 3 main navigation pages ('dashboard' | 'alerts' | 'settings')
-  const [activePage, setActivePage] = useState(initialPage || 'dashboard');
-
-  useEffect(() => {
-    if (initialPage && (initialPage === 'dashboard' || initialPage === 'alerts' || initialPage === 'settings')) {
-      setActivePage(initialPage);
-    }
-  }, [initialPage]);
-
-  const [settingsActiveTab, setSettingsActiveTab] = useState('profile');
-
-  // Customer session & profile state
-  const customerToken = localStorage.getItem('customer_token');
-  const [customerProfile, setCustomerProfile] = useState(() => {
-    try {
-      return JSON.parse(localStorage.getItem('customer_user') || 'null');
-    } catch {
-      return null;
-    }
-  });
-  const [customerAnalyses, setCustomerAnalyses] = useState([]);
-  const [customerAlerts, setCustomerAlerts] = useState([]);
-  const [activeAlert, setActiveAlert] = useState(null);
-  const [highRiskCountdown, setHighRiskCountdown] = useState(60);
-  const [isAcknowledged, setIsAcknowledged] = useState(false);
-  const [isHighRiskTimedOut, setIsHighRiskTimedOut] = useState(false);
-  const [acknowledging, setAcknowledging] = useState(false);
+  const [activePage, setActivePage] = useState('dashboard');
 
   // Input Mode state ('manual' | 'realtime')
   const [inputMode, setInputMode] = useState('manual');
@@ -148,108 +113,6 @@ export default function Dashboard({ navigate, initialPage = 'dashboard' }) {
     setTimeout(() => {
       setToastMessage('');
     }, 4000);
-  };
-
-  const loadCustomerData = async () => {
-    const token = localStorage.getItem('customer_token') || customerToken;
-    if (!token) return;
-    try {
-      const [prof, analyses, alertsList] = await Promise.all([
-        getCustomerProfile(token).catch(() => null),
-        getCustomerAnalyses(token, 50).catch(() => []),
-        getCustomerAlerts(token, 50).catch(() => []),
-      ]);
-      if (prof) {
-        setCustomerProfile(prof);
-        localStorage.setItem('customer_user', JSON.stringify(prof));
-        setBatteryData((prev) => ({
-          ...prev,
-          battery_id: prof.battery_id || prev.battery_id,
-        }));
-      }
-      setCustomerAnalyses(analyses || []);
-      setCustomerAlerts(alertsList || []);
-
-      // If latest alert is high risk and pending, initialize countdown
-      if (alertsList && alertsList.length > 0) {
-        const latest = alertsList[0];
-        if (latest.risk_level === 'HIGH' && latest.status === 'PENDING' && !latest.acknowledged) {
-          setActiveAlert(latest);
-        } else if (latest.risk_level === 'MEDIUM' && !latest.acknowledged) {
-          setActiveAlert(latest);
-        }
-      }
-    } catch (err) {
-      console.error('Error loading customer data:', err);
-    }
-  };
-
-  useEffect(() => {
-    const cachedUser = localStorage.getItem('customer_user');
-    if (cachedUser) {
-      try {
-        setCustomerProfile(JSON.parse(cachedUser));
-      } catch {}
-    }
-    loadCustomerData();
-  }, [customerToken]);
-
-  // Countdown timer for High Risk based on backend acknowledgement_deadline
-  useEffect(() => {
-    if (!activeAlert || activeAlert.risk_level !== 'HIGH' || !activeAlert.acknowledgement_deadline) {
-      return;
-    }
-
-    const checkTime = () => {
-      const deadlineMs = new Date(activeAlert.acknowledgement_deadline).getTime();
-      const nowMs = Date.now();
-      const diffSec = Math.max(0, Math.floor((deadlineMs - nowMs) / 1000));
-      setHighRiskCountdown(diffSec);
-
-      if (diffSec <= 0) {
-        setIsHighRiskTimedOut(true);
-      }
-    };
-
-    checkTime();
-    const interval = setInterval(checkTime, 1000);
-    return () => clearInterval(interval);
-  }, [activeAlert?.acknowledgement_deadline]);
-
-  const formatTime = (totalSeconds) => {
-    const mins = Math.floor(totalSeconds / 60);
-    const secs = totalSeconds % 60;
-    return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
-  };
-
-  const handleAcknowledgeAlert = async () => {
-    if (!activeAlert?.id || acknowledging) return;
-    setAcknowledging(true);
-    try {
-      if (customerToken) {
-        const res = await acknowledgeCustomerAlert(activeAlert.id, customerToken);
-        setIsAcknowledged(true);
-        showToast(res.message || 'Alert acknowledged successfully!', 'info');
-      } else {
-        setIsAcknowledged(true);
-        showToast('Alert acknowledged successfully!', 'info');
-      }
-      loadCustomerData();
-    } catch (err) {
-      showToast(err.message || 'Failed to acknowledge alert', 'error');
-    } finally {
-      setAcknowledging(false);
-    }
-  };
-
-  const handleCustomerLogout = () => {
-    localStorage.removeItem('customer_token');
-    localStorage.removeItem('customer_user');
-    if (navigate) {
-      navigate('/customer/login');
-    } else {
-      window.location.href = '/customer/login';
-    }
   };
 
   // Verify backend connectivity on load
@@ -310,94 +173,47 @@ export default function Dashboard({ navigate, initialPage = 'dashboard' }) {
         charging_cycles: targetData.charging_cycles,
       };
 
-      if (customerToken) {
-        const analyzeRes = await analyzeCustomerBattery({
-          battery_temperature: targetData.current_temperature,
-          current: targetData.charging_current,
-          voltage: targetData.voltage,
-          soc: targetData.soc,
-          battery_age: targetData.battery_age,
-          charging_cycles: targetData.charging_cycles,
-          ambient_temperature: targetData.ambient_temperature,
-          battery_id: targetData.battery_id,
-        }, customerToken);
+      // Call predict endpoint
+      const predRes = await predictBattery(predReq);
+      setPredictionData(predRes);
 
-        setPredictionData({
-          battery_id: analyzeRes.battery_id,
-          predicted_future_temperature: analyzeRes.predicted_temperature,
-          confidence_score: 98.4,
-          model_name: 'Random Forest Regressor',
-          unit: '°C',
-        });
+      // Call risk assessment endpoint with predicted temperature
+      const riskReq = {
+        battery_id: targetData.battery_id,
+        predicted_future_temperature: predRes.predicted_future_temperature,
+        current_temperature: parseFloat(targetData.current_temperature ?? targetData.battery_temperature ?? 30.0),
+        soc: parseFloat(targetData.soc),
+        voltage: parseFloat(targetData.voltage),
+        charging_current: parseFloat(targetData.charging_current),
+        ambient_temperature: parseFloat(targetData.ambient_temperature ?? 25.0),
+        battery_age: parseFloat(targetData.battery_age ?? 12.0),
+        charging_cycles: parseInt(targetData.charging_cycles ?? 300, 10),
+      };
 
-        setRiskAssessmentData({
-          risk_score: analyzeRes.risk_value,
-          overall_risk_score: analyzeRes.risk_value,
-          risk_level: analyzeRes.risk_level,
-          level: analyzeRes.risk_level,
-          main_risk_factors: analyzeRes.main_risk_factors,
-          recommendations: analyzeRes.recommendations,
-        });
+      const riskRes = await assessRisk(riskReq);
+      setRiskAssessmentData(riskRes);
 
-        setActiveAlert(analyzeRes.alert);
-        setIsAcknowledged(false);
-        setIsHighRiskTimedOut(false);
+      // Set charging status according to backend response
+      const packStatus =
+        riskRes.charging_status ||
+        riskRes.alert_event?.charging_status ||
+        (riskRes.risk_level === 'HIGH' ? 'SIMULATED DISCONNECT' : 'ACTIVE');
+      setChargingStatus(
+        typeof packStatus === 'string' && packStatus.toUpperCase().includes('DISCONNECT')
+          ? 'SIMULATED DISCONNECT'
+          : 'ACTIVE'
+      );
 
-        const packStatus = analyzeRes.risk_level === 'HIGH' ? 'SIMULATED DISCONNECT' : 'ACTIVE';
-        setChargingStatus(packStatus);
-        setAlertRefreshTrigger((prev) => prev + 1);
-        setConnectionStatus('online');
+      // Trigger SQLite alert history refresh
+      setAlertRefreshTrigger((prev) => prev + 1);
+      setConnectionStatus('online');
 
-        if (!isInitial) {
-          showToast(
-            `Analysis complete for ${analyzeRes.battery_id}: ${analyzeRes.risk_level} RISK (${analyzeRes.risk_value}/100)`,
-            analyzeRes.risk_level === 'HIGH' ? 'error' : analyzeRes.risk_level === 'MEDIUM' ? 'warning' : 'info'
-          );
-        }
-        loadCustomerData();
-      } else {
-        // Call predict endpoint
-        const predRes = await predictBattery(predReq);
-        setPredictionData(predRes);
-
-        // Call risk assessment endpoint with predicted temperature
-        const riskReq = {
-          battery_id: targetData.battery_id,
-          predicted_future_temperature: predRes.predicted_future_temperature,
-          current_temperature: parseFloat(targetData.current_temperature ?? targetData.battery_temperature ?? 30.0),
-          soc: parseFloat(targetData.soc),
-          voltage: parseFloat(targetData.voltage),
-          charging_current: parseFloat(targetData.charging_current),
-          ambient_temperature: parseFloat(targetData.ambient_temperature ?? 25.0),
-          battery_age: parseFloat(targetData.battery_age ?? 12.0),
-          charging_cycles: parseInt(targetData.charging_cycles ?? 300, 10),
-        };
-
-        const riskRes = await assessRisk(riskReq);
-        setRiskAssessmentData(riskRes);
-
-        // Set charging status according to backend response
-        const packStatus =
-          riskRes.charging_status ||
-          riskRes.alert_event?.charging_status ||
-          (riskRes.risk_level === 'HIGH' ? 'SIMULATED DISCONNECT' : 'ACTIVE');
-        setChargingStatus(
-          typeof packStatus === 'string' && packStatus.toUpperCase().includes('DISCONNECT')
-            ? 'SIMULATED DISCONNECT'
-            : 'ACTIVE'
+      if (!isInitial) {
+        const scoreVal = riskRes.risk_score ?? riskRes.overall_risk_score ?? 0;
+        showToast(
+          `Analysis complete for ${targetData.battery_id}: ${riskRes.risk_level} RISK (${Number(scoreVal).toFixed(1)}/100)`,
+          riskRes.risk_level === 'HIGH' ? 'error' : riskRes.risk_level === 'MEDIUM' ? 'warning' : 'info'
         );
-
-        // Trigger SQLite alert history refresh
-        setAlertRefreshTrigger((prev) => prev + 1);
-        setConnectionStatus('online');
-
-        if (!isInitial) {
-          const scoreVal = riskRes.risk_score ?? riskRes.overall_risk_score ?? 0;
-          showToast(
-            `Analysis complete for ${targetData.battery_id}: ${riskRes.risk_level} RISK (${Number(scoreVal).toFixed(1)}/100)`,
-            riskRes.risk_level === 'HIGH' ? 'error' : riskRes.risk_level === 'MEDIUM' ? 'warning' : 'info'
-          );
-        }
       }
     } catch (err) {
       console.error('Analysis workflow error:', err);
@@ -751,40 +567,6 @@ export default function Dashboard({ navigate, initialPage = 'dashboard' }) {
                   <span className="w-2 h-2 rounded-full bg-rose-400" />
                 )}
                 <span>{connectionStatus === 'online' ? 'API 8000' : 'Backend Disconnected'}</span>
-              </button>
-
-              {/* Customer Profile Pill & Logout */}
-              {customerProfile ? (
-                <div className="flex items-center gap-2 pl-2 border-l border-slate-800">
-                  <div className="hidden lg:block text-right text-xs">
-                    <span className="font-semibold text-white block truncate max-w-[120px]">{customerProfile.name}</span>
-                    <span className="text-[10px] text-cyan-400 font-mono">{customerProfile.battery_id}</span>
-                  </div>
-                  <button
-                    onClick={handleCustomerLogout}
-                    title="Sign Out as Customer"
-                    className="p-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-rose-400 hover:bg-slate-850 transition"
-                  >
-                    <LogOut className="w-4 h-4" />
-                  </button>
-                </div>
-              ) : (
-                <button
-                  onClick={() => navigate ? navigate('/customer/login') : window.location.href = '/customer/login'}
-                  className="px-3 py-1.5 rounded-xl bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-500/30 text-cyan-300 font-medium text-xs transition"
-                >
-                  Customer Login
-                </button>
-              )}
-
-              {/* Owner Portal Switch Link */}
-              <button
-                onClick={() => navigate ? navigate('/owner/login') : window.location.href = '/owner/login'}
-                title="Switch to Owner Portal"
-                className="hidden sm:flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-400 text-xs font-semibold transition"
-              >
-                <Lock className="w-3.5 h-3.5" />
-                <span>Owner</span>
               </button>
             </div>
           </div>
@@ -1180,6 +962,22 @@ export default function Dashboard({ navigate, initialPage = 'dashboard' }) {
               )}
             </section>
 
+            {/* 2. SHARED AI ANALYSIS OUTCOMES: PREDICTION & RISK FACTORS */}
+            <section className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
+              <AIPredictionCard
+                prediction={predictionData}
+                riskAssessment={riskAssessmentData}
+                loading={analyzing || loadingNext}
+                error={analysisError && !predictionData ? analysisError : null}
+              />
+
+              <RiskFactors
+                riskAssessment={riskAssessmentData}
+                loading={analyzing || loadingNext}
+                error={analysisError && !riskAssessmentData ? analysisError : null}
+              />
+            </section>
+
             {/* 3. RECOMMENDATION */}
             <section>
               <RecommendationCard
@@ -1196,211 +994,6 @@ export default function Dashboard({ navigate, initialPage = 'dashboard' }) {
                 onNavigateToAlerts={() => setActivePage('alerts')}
               />
             </section>
-
-            {/* 5. STRICT NOTIFICATION & ALERT WORKFLOW BANNER */}
-            <section className="space-y-4">
-              <div className="flex items-center justify-between pb-1">
-                <div className="flex items-center gap-2">
-                  <ShieldCheck className="w-4 h-4 text-cyan-400" />
-                  <h3 className="text-sm font-bold text-white uppercase tracking-wider">
-                    Safety Notification &amp; Alert Protocol
-                  </h3>
-                </div>
-                <span className="text-[11px] font-mono text-slate-400">
-                  Automated Escalation Rule Engine
-                </span>
-              </div>
-
-              {/* LOW RISK BANNER */}
-              {(riskAssessmentData?.risk_level === 'LOW' || (!riskAssessmentData && !activeAlert)) && (
-                <div className="bg-emerald-950/20 border border-emerald-500/30 rounded-2xl p-5 shadow-lg backdrop-blur-xl flex items-start gap-4">
-                  <div className="p-3 rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                    <ShieldCheck className="w-6 h-6" />
-                  </div>
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2.5">
-                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
-                        LOW RISK &bull; {Number(riskAssessmentData?.risk_score ?? riskAssessmentData?.overall_risk_score ?? 15).toFixed(1)}/100
-                      </span>
-                      <span className="text-xs font-semibold text-emerald-200">Nominal Thermal &amp; Operating State</span>
-                    </div>
-                    <p className="text-xs text-slate-300 mt-1.5 leading-relaxed">
-                      Battery operates well within certified safety envelopes. Alert is recorded to your dashboard only. No email dispatch, SMS, or voice call escalation required.
-                    </p>
-                    <div className="flex items-center gap-3 mt-2 text-[11px] text-emerald-400/80 font-mono">
-                      <span className="flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> Dashboard Telemetry Active</span>
-                      <span>&bull;</span>
-                      <span>No Emergency Channels Triggered</span>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* MEDIUM RISK BANNER */}
-              {riskAssessmentData?.risk_level === 'MEDIUM' && (
-                <div className="bg-amber-950/30 border border-amber-500/40 rounded-2xl p-5 shadow-lg backdrop-blur-xl flex flex-col md:flex-row md:items-center justify-between gap-4">
-                  <div className="flex items-start gap-4">
-                    <div className="p-3 rounded-xl bg-amber-500/10 text-amber-400 border border-amber-500/20">
-                      <AlertTriangle className="w-6 h-6" />
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2.5">
-                        <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-amber-500/20 text-amber-300 border border-amber-500/40">
-                          MEDIUM RISK &bull; {Number(riskAssessmentData?.risk_score ?? riskAssessmentData?.overall_risk_score ?? 55).toFixed(1)}/100
-                        </span>
-                        <span className="text-xs font-semibold text-amber-200">Elevated Thermal Threshold Detected</span>
-                      </div>
-                      <p className="text-xs text-slate-300 mt-1.5 leading-relaxed">
-                        Thermal warning alert has been <strong>automatically emailed immediately</strong> to {customerProfile?.email || 'your registered address'}. Please review parameters and acknowledge.
-                      </p>
-                      <div className="flex items-center gap-3 mt-2 text-[11px] text-amber-300/80 font-mono">
-                        <span className="flex items-center gap-1 text-emerald-400"><Mail className="w-3 h-3" /> Email Dispatched</span>
-                        <span>&bull;</span>
-                        <span>No SMS / No Call Required</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div>
-                    {isAcknowledged || activeAlert?.status === 'ACKNOWLEDGED' ? (
-                      <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-xs font-semibold">
-                        <CheckCircle2 className="w-4 h-4" />
-                        <span>Acknowledged</span>
-                      </div>
-                    ) : (
-                      <button
-                        onClick={handleAcknowledgeAlert}
-                        disabled={acknowledging}
-                        className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-white text-xs font-bold shadow-lg shadow-amber-500/20 flex items-center gap-2 transition-all disabled:opacity-50 whitespace-nowrap"
-                      >
-                        {acknowledging ? (
-                          <>
-                            <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                            <span>Acknowledging...</span>
-                          </>
-                        ) : (
-                          <>
-                            <CheckCircle2 className="w-4 h-4" />
-                            <span>[ ACKNOWLEDGE ALERT ]</span>
-                          </>
-                        )}
-                      </button>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {/* HIGH RISK BANNER WITH 60S COUNTDOWN & ESCALATION */}
-              {riskAssessmentData?.risk_level === 'HIGH' && (
-                <div className="bg-rose-950/40 border border-rose-500/50 rounded-2xl p-5 shadow-2xl backdrop-blur-xl relative overflow-hidden">
-                  <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-                    <div className="flex items-start gap-4">
-                      <div className="p-3 rounded-xl bg-rose-500/20 text-rose-300 border border-rose-500/30 animate-pulse">
-                        <Flame className="w-6 h-6" />
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-2.5 flex-wrap">
-                          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-rose-500/30 text-rose-200 border border-rose-500/60 animate-pulse">
-                            CRITICAL HIGH RISK &bull; {Number(riskAssessmentData?.risk_score ?? riskAssessmentData?.overall_risk_score ?? 85).toFixed(1)}/100
-                          </span>
-                          <span className="text-xs font-bold text-rose-200">Critical Thermal Anomaly &bull; 60s Safety Window Active</span>
-                        </div>
-                        <p className="text-xs text-slate-300 mt-1.5 max-w-2xl leading-relaxed">
-                          Severe heat build-up predicted. Acknowledge within <strong>60 seconds</strong> to confirm safety action. If unacknowledged, automated multi-channel escalation (SMS + Twilio Emergency Voice Call) will trigger automatically.
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* Countdown & Action */}
-                    <div className="flex items-center gap-3 flex-wrap justify-end">
-                      <div className={`flex items-center gap-2 px-3.5 py-2 rounded-xl border font-mono text-xs font-bold ${
-                        isAcknowledged || activeAlert?.status === 'ACKNOWLEDGED'
-                          ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
-                          : isHighRiskTimedOut || highRiskCountdown === 0 || activeAlert?.status === 'ESCALATED'
-                          ? 'bg-rose-500/20 border-rose-500/50 text-rose-300 animate-pulse'
-                          : 'bg-amber-500/15 border-amber-500/40 text-amber-300'
-                      }`}>
-                        <Clock className="w-4 h-4" />
-                        {isAcknowledged || activeAlert?.status === 'ACKNOWLEDGED' ? (
-                          <span>ACKNOWLEDGED &bull; ESCALATION CANCELLED</span>
-                        ) : isHighRiskTimedOut || highRiskCountdown === 0 || activeAlert?.status === 'ESCALATED' ? (
-                          <span>DEADLINE EXPIRED &bull; ESCALATED</span>
-                        ) : (
-                          <span>SAFETY WINDOW: 00:{String(highRiskCountdown).padStart(2, '0')}s</span>
-                        )}
-                      </div>
-
-                      {isAcknowledged || activeAlert?.status === 'ACKNOWLEDGED' ? (
-                        <div className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-xs font-bold">
-                          <CheckCircle2 className="w-4 h-4" />
-                          <span>Confirmed Safe</span>
-                        </div>
-                      ) : isHighRiskTimedOut || highRiskCountdown === 0 || activeAlert?.status === 'ESCALATED' ? (
-                        <div className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-rose-500/20 border border-rose-500/40 text-rose-300 text-xs font-bold">
-                          <PhoneCall className="w-4 h-4 animate-bounce" />
-                          <span>Call + SMS Dispatched</span>
-                        </div>
-                      ) : (
-                        <button
-                          onClick={handleAcknowledgeAlert}
-                          disabled={acknowledging}
-                          className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-rose-600 to-red-700 hover:from-rose-500 hover:to-red-600 text-white text-xs font-bold shadow-lg shadow-rose-600/30 flex items-center gap-2 transition-all disabled:opacity-50 whitespace-nowrap"
-                        >
-                          {acknowledging ? (
-                            <>
-                              <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                              <span>Acknowledging...</span>
-                            </>
-                          ) : (
-                            <>
-                              <CheckCircle2 className="w-4 h-4" />
-                              <span>[ ACKNOWLEDGE ALERT ]</span>
-                            </>
-                          )}
-                        </button>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Escalation Channels Status */}
-                  <div className="mt-3.5 pt-3 border-t border-rose-800/40 flex items-center gap-4 text-[11px] font-mono flex-wrap">
-                    <span className="text-slate-400 font-semibold">Channels:</span>
-                    <span className="flex items-center gap-1 text-emerald-400">
-                      <CheckCircle2 className="w-3.5 h-3.5" /> Email Alert
-                    </span>
-                    <span className={`flex items-center gap-1 ${
-                      isAcknowledged || activeAlert?.status === 'ACKNOWLEDGED'
-                        ? 'text-slate-500 line-through'
-                        : isHighRiskTimedOut || highRiskCountdown === 0 || activeAlert?.status === 'ESCALATED'
-                        ? 'text-rose-300 font-bold'
-                        : 'text-amber-400'
-                    }`}>
-                      <Mail className="w-3.5 h-3.5" />
-                      {isAcknowledged || activeAlert?.status === 'ACKNOWLEDGED'
-                        ? 'SMS (Cancelled)'
-                        : isHighRiskTimedOut || highRiskCountdown === 0 || activeAlert?.status === 'ESCALATED'
-                        ? 'SMS (Dispatched)'
-                        : 'SMS (Pending 60s)'}
-                    </span>
-                    <span className={`flex items-center gap-1 ${
-                      isAcknowledged || activeAlert?.status === 'ACKNOWLEDGED'
-                        ? 'text-slate-500 line-through'
-                        : isHighRiskTimedOut || highRiskCountdown === 0 || activeAlert?.status === 'ESCALATED'
-                        ? 'text-rose-300 font-bold'
-                        : 'text-amber-400'
-                    }`}>
-                      <PhoneCall className="w-3.5 h-3.5" />
-                      {isAcknowledged || activeAlert?.status === 'ACKNOWLEDGED'
-                        ? 'Twilio Call (Cancelled)'
-                        : isHighRiskTimedOut || highRiskCountdown === 0 || activeAlert?.status === 'ESCALATED'
-                        ? 'Twilio Call (Triggered)'
-                        : 'Twilio Call (Pending 60s)'}
-                    </span>
-                  </div>
-                </div>
-              )}
-            </section>
-
           </div>
         )}
 
@@ -1411,9 +1004,6 @@ export default function Dashboard({ navigate, initialPage = 'dashboard' }) {
             latestPrediction={predictionData}
             latestRiskAssessment={riskAssessmentData}
             latestChargingStatus={chargingStatus}
-            customerAnalyses={customerAnalyses}
-            customerAlerts={customerAlerts}
-            customerProfile={customerProfile}
             refreshTrigger={alertRefreshTrigger}
           />
         )}
@@ -1421,14 +1011,6 @@ export default function Dashboard({ navigate, initialPage = 'dashboard' }) {
         {/* PAGE 3 — SETTINGS */}
         {activePage === 'settings' && (
           <SettingsPage
-            customerProfile={customerProfile}
-            customerAnalyses={customerAnalyses}
-            customerAlerts={customerAlerts}
-            customerToken={customerToken}
-            onLogout={handleCustomerLogout}
-            onRefreshProfile={loadCustomerData}
-            activeTab={settingsActiveTab}
-            onTabChange={(tab) => setSettingsActiveTab(tab)}
             currentBatteryState={batteryData}
             realtimeStatus={realtimeStatus}
             realtimeRunning={realtimeRunning}
